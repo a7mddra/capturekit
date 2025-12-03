@@ -85,7 +85,7 @@ mkdir -p "$DIST_DIR/plugins"
 
 # Determine Binary Name (from CMakeLists.txt)
 if [ "$OS" == "Darwin" ]; then
-    APP_BUNDLE="$BUILD_DIR/capturekit_ui.app"
+    APP_BUNDLE="$BUILD_DIR/capturekit.app"
     if [ ! -d "$APP_BUNDLE" ]; then err "App bundle not found!"; exit 1; fi
 else
     # Linux Binary
@@ -93,7 +93,7 @@ else
     SRC_BIN="$BUILD_DIR/$BIN_NAME"
     
     # Fallback if CMake target name differs
-    if [ ! -f "$SRC_BIN" ]; then SRC_BIN="$BUILD_DIR/capturekit_ui"; fi
+    if [ ! -f "$SRC_BIN" ]; then SRC_BIN="$BUILD_DIR/capturekit"; fi
     
     if [ ! -f "$SRC_BIN" ]; then err "Compiled binary not found at $SRC_BIN"; exit 1; fi
 
@@ -109,7 +109,7 @@ if [ "$OS" == "Darwin" ]; then
     MACDEPLOYQT="$QT_BIN_PATH/macdeployqt"
     
     cp -R "$APP_BUNDLE" "$DIST_DIR/"
-    "$MACDEPLOYQT" "$DIST_DIR/capturekit_ui.app" -dmg -always-overwrite -verbose=1
+    "$MACDEPLOYQT" "$DIST_DIR/capturekit.app" -dmg -always-overwrite -verbose=1
     
     log "macOS Deployment Complete."
 

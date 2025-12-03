@@ -53,21 +53,21 @@ list(APPEND SOURCES
 )
 
 # Target Definition
-add_executable(capturekit_ui ${SOURCES})
+add_executable(capturekit ${SOURCES})
 
-target_include_directories(capturekit_ui PRIVATE 
+target_include_directories(capturekit PRIVATE 
     src/engine 
     src/interface
 )
 
-target_link_libraries(capturekit_ui PRIVATE 
+target_link_libraries(capturekit PRIVATE 
     Qt6::Core Qt6::Gui Qt6::Widgets 
     ${PLATFORM_LIBS}
 )
 
 # Output Properties (Matches PKGBUILD expectations)
 if(UNIX AND NOT APPLE)
-    set_target_properties(capturekit_ui PROPERTIES
+    set_target_properties(capturekit PROPERTIES
         OUTPUT_NAME "capturekit-bin"
         INSTALL_RPATH "$ORIGIN/../libs"
         BUILD_WITH_INSTALL_RPATH TRUE

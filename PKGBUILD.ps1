@@ -114,7 +114,7 @@ function Create-Distribution {
     if (Test-Path $DistDir) { Remove-Item $DistDir -Recurse -Force }
     New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
     
-    $binName = "capturekit_ui.exe"
+    $binName = "capturekit.exe"
     $builtExe = "$BuildDir/$binName"
     
     if (-not (Test-Path $builtExe)) { 
