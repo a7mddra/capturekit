@@ -9,19 +9,22 @@
 #include <QScreen>
 #include <QPixmap>
 #include <QDebug>
+#if defined(Q_OS_LINUX)
 #include <QDBusInterface>
 #include <QDBusReply>
 #include <QDBusConnection>
 #include <QDBusObjectPath>
 #include <QEventLoop>
-#include <QFile>
 #include <QUuid>
 #include <QUrl>
+#include <QFile>
+#endif
 #include <cmath>
 
 // =============================================================================
 // HELPER: Portal Response Handler
 // =============================================================================
+#if defined(Q_OS_LINUX)
 class PortalHelper : public QObject {
     Q_OBJECT
 public:
@@ -43,6 +46,7 @@ public slots:
 signals:
     void finished();
 };
+#endif
 
 // =============================================================================
 // MAIN UNIX CAPTURE ENGINE
@@ -53,31 +57,26 @@ public:
     CaptureEngineUnix(QObject *parent = nullptr) : CaptureEngine(parent) {}
 
     std::vector<CapturedFrame> captureAll() override {
-        // ---------------------------------------------------------------------
-        // CRITICAL FIX: Session Detection vs Platform Detection
-        // ---------------------------------------------------------------------
-        // Since we are forcing QT_QPA_PLATFORM=xcb in main.cpp, 
-        // QGuiApplication::platformName() will return "xcb".
-        // This causes the logic to mistakenly choose captureStandard() (grabWindow),
-        // which returns black screens on Wayland.
-        //
-        // We must check the ENVIRONMENT to see if we are actually in a Wayland session.
-        // ---------------------------------------------------------------------
-        
+#if defined(Q_OS_LINUX)
+        // On Linux, check for Wayland and use the appropriate capture method.
         QString sessionType = qgetenv("XDG_SESSION_TYPE").toLower();
-        
-        // Use Portal if we are on Wayland, regardless of how Qt is rendering.
         if (sessionType == "wayland") {
-            qDebug() << "Wayland session detected (forcing Portal capture despite XCB backend).";
+            qDebug() << "Wayland session detected, using Portal capture.";
             return captureWayland();
         } else {
-            qDebug() << "X11 session detected (using standard capture).";
+            qDebug() << "X11 session detected, using standard capture.";
             return captureStandard();
         }
+#else
+        // On other Unix-like systems (that are not macOS), default to standard.
+        // Note: This file is not intended to be compiled on macOS anymore.
+        qDebug() << "Non-Linux Unix OS, using standard capture.";
+        return captureStandard();
+#endif
     }
 
 private:
-    // --- X11 / macOS (Standard Memory Grab) ---
+    // --- X11 (Standard Memory Grab) ---
     std::vector<CapturedFrame> captureStandard() {
         std::vector<CapturedFrame> frames;
         const auto screens = QGuiApplication::screens();
@@ -100,6 +99,7 @@ private:
         return frames;
     }
 
+#if defined(Q_OS_LINUX)
     // --- Wayland (The Giant Image Slicer) ---
     std::vector<CapturedFrame> captureWayland() {
         std::vector<CapturedFrame> frames;
@@ -144,27 +144,23 @@ private:
         // 4. Load the Giant Image
         QString localPath = QUrl(helper.savedUri).toLocalFile();
         QImage fullDesktop(localPath);
-        QFile::remove(localPath); // Delete immediately
+        
+        // The portal creates a temporary file that we must delete.
+        if (!QFile::remove(localPath)) {
+            qWarning() << "Failed to remove temporary portal file:" << localPath;
+        }
 
         if (fullDesktop.isNull()) {
             qCritical() << "Downloaded image is null.";
             return frames;
         }
 
-        // =========================================================
-        // SLICER LOGIC
-        // =========================================================
-        
-        // A. Calculate Logical Bounds
+        // Slicer Logic...
         QRect logicalBounds;
         for (QScreen* screen : QGuiApplication::screens()) {
             logicalBounds = logicalBounds.united(screen->geometry());
         }
 
-        // B. Calculate Global Scale
-        // Note: When running in XCB on Wayland, logicalBounds might report the XWayland 
-        // bounds, while fullDesktop is the raw Wayland compositor screenshot.
-        // This ratio calculation remains valid and necessary.
         double scaleFactor = 1.0;
         if (logicalBounds.width() > 0) {
             scaleFactor = (double)fullDesktop.width() / (double)logicalBounds.width();
@@ -204,10 +200,13 @@ private:
         CaptureEngine::sortLeftToRight(frames);
         return frames;
     }
+#endif
 };
 
+#if defined(Q_OS_LINUX)
 #include "Capture_Unix.moc"
 
 extern "C" CaptureEngine* createUnixEngine(QObject* parent) {
     return new CaptureEngineUnix(parent);
 }
+#endif
