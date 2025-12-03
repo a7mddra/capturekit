@@ -16,6 +16,9 @@
 #pragma comment(lib, "User32.lib")
 #pragma comment(lib, "Gdi32.lib")
 
+#include <ShellScalingApi.h>
+#pragma comment(lib, "Shcore.lib")
+
 using namespace Gdiplus;
 
 struct MonitorData
@@ -101,15 +104,14 @@ private:
             frame.geometry = geometry;
             frame.index = data->indexCounter++;
             frame.name = QString::fromWCharArray(mi.szDevice);
-
-            frame.devicePixelRatio = 1.0;
-            for (QScreen *screen : QGuiApplication::screens())
-            {
-                if (screen->geometry().topLeft() == geometry.topLeft())
-                {
-                    frame.devicePixelRatio = screen->devicePixelRatio();
-                    break;
-                }
+            
+            // CRITICAL FIX: Get DPI directly for the monitor
+            UINT dpiX, dpiY;
+            HRESULT hr = GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
+            if (SUCCEEDED(hr)) {
+                frame.devicePixelRatio = static_cast<qreal>(dpiX) / 96.0;
+            } else {
+                frame.devicePixelRatio = 1.0;
             }
 
             data->frames.push_back(frame);

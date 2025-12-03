@@ -76,7 +76,7 @@ set(ENGINE_SOURCES src/engine/Capture.h)
 if(WIN32)
     # Windows: GDI+ Engine
     list(APPEND ENGINE_SOURCES src/engine/Capture_Win.cpp)
-    set(ENGINE_LIBS dwmapi gdiplus user32 gdi32)
+    set(ENGINE_LIBS dwmapi gdiplus user32 gdi32 Shcore)
 elseif(APPLE)
     # Mac: CoreGraphics
     list(APPEND ENGINE_SOURCES src/engine/Capture_Unix.cpp)
