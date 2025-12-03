@@ -96,7 +96,7 @@ public:
                 msgBox.setText(tr("CaptureKit requires screen recording permission to take screenshots."));
                 msgBox.setInformativeText(tr("Please grant permission in System Settings. The application will close after. A restart may be required."));
                 
-                QPushButton *openSettingsButton = msgBox.addButton(tr("Open System Settings"), QMessageBox::ActionRole);
+                QAbstractButton *openSettingsButton = msgBox.addButton(tr("Open System Settings"), QMessageBox::ActionRole);
                 msgBox.setStandardButtons(QMessageBox::Cancel);
                 msgBox.setDefaultButton(openSettingsButton);
 
