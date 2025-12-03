@@ -35,7 +35,7 @@ private:
     DrawView *m_drawView;
 
 #ifdef Q_OS_MAC
-    void *m_displayChangeHandle;
+    bool m_displayCallbackRegistered;
 #endif
 };
 

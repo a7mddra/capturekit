@@ -9,6 +9,8 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDebug>
+#include <QWindow>
+#include <QNativeInterface>
 #include <Cocoa/Cocoa.h>
 #include <CoreGraphics/CoreGraphics.h>
 
@@ -26,7 +28,8 @@ static void DisplayReconfigurationCallBack(
 
 MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, qreal dpr, QWidget *parent)
     : QMainWindow(parent), 
-      m_displayNum(displayNum)
+      m_displayNum(displayNum),
+      m_displayCallbackRegistered(false)
 {
     // CHANGED: Pass dpr to DrawView constructor
     m_drawView = new DrawView(bgImage, dpr, this);
@@ -44,11 +47,20 @@ MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, 
     m_drawView->setContentsMargins(0, 0, 0, 0);
 
     // Native macOS Magic: Disable Animations & Shadow
-    NSView *nsview = reinterpret_cast<NSView *>(winId());
-    NSWindow *nswindow = [nsview window];
-    [nswindow setAnimationBehavior: NSWindowAnimationBehaviorNone];
-    [nswindow setHasShadow:NO];
-    [nswindow setLevel:NSScreenSaverWindowLevel]; // Force it above everything
+    QWindow *qwin = windowHandle();
+    if (qwin) {
+        QNativeInterface::QCocoaWindow *nativeWindow = qwin->nativeInterface<QNativeInterface::QCocoaWindow>();
+        if (nativeWindow) {
+            NSWindow *nswindow = nativeWindow->window();
+            [nswindow setAnimationBehavior: NSWindowAnimationBehaviorNone];
+            [nswindow setHasShadow:NO];
+            [nswindow setLevel:NSScreenSaverWindowLevel]; // Force it above everything
+        } else {
+            qWarning() << "Could not retrieve native Cocoa window interface for QWindow.";
+        }
+    } else {
+        qWarning() << "Could not get QWindow handle for MainWindow.";
+    }
 
     // Register Display Callback
     CGError err = CGDisplayRegisterReconfigurationCallback(DisplayReconfigurationCallBack, this);
@@ -56,7 +68,7 @@ MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, 
         qWarning() << "Failed to register display reconfiguration callback:" << err;
     } else {
         qDebug() << "Successfully registered display reconfiguration callback.";
-        m_displayChangeHandle = (void*)DisplayReconfigurationCallBack;
+        m_displayCallbackRegistered = true;
     }
 
     show();
@@ -64,7 +76,7 @@ MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, 
 
 MainWindow::~MainWindow()
 {
-    if (m_displayChangeHandle) {
+    if (m_displayCallbackRegistered) {
         qDebug() << "Unregistering display reconfiguration callback.";
         CGDisplayRemoveReconfigurationCallback(DisplayReconfigurationCallBack, this);
     }

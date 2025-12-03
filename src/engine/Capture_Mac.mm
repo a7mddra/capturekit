@@ -10,6 +10,7 @@
 #include <QDebug>
 #include <QOperatingSystemVersion>
 #include <QNativeInterface> 
+#include <QMessageBox>
 
 #import <CoreGraphics/CoreGraphics.h>
 #import <AppKit/AppKit.h>
@@ -24,22 +25,35 @@ static QImage convertCGImageRefToQImage(CGImageRef imageRef)
     size_t width = CGImageGetWidth(imageRef);
     size_t height = CGImageGetHeight(imageRef);
     
-    CFDataRef dataRef = CGDataProviderCopyData(CGImageGetDataProvider(imageRef));
-    if (!dataRef) {
-        qWarning() << "Failed to copy CGImage data provider";
+    if (width == 0 || height == 0) {
         return QImage();
     }
 
-    const uchar *rawData = reinterpret_cast<const uchar*>(CFDataGetBytePtr(dataRef));
-    size_t bytesPerRow = CGImageGetBytesPerRow(imageRef);
+    size_t bytesPerPixel = 4;
+    size_t bytesPerRow = bytesPerPixel * width;
+    std::vector<unsigned char> buffer(bytesPerRow * height);
 
-    QImage tmp(rawData, static_cast<int>(width), static_cast<int>(height),
-               static_cast<int>(bytesPerRow), QImage::Format_ARGB32_Premultiplied);
-
-    QImage result = tmp.copy();
-    CFRelease(dataRef);
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    // Create a bitmap context with a known ARGB format.
+    CGContextRef ctx = CGBitmapContextCreate(buffer.data(), width, height, 8, bytesPerRow, colorSpace,
+                                             kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Big);
     
-    return result;
+    if (!ctx) {
+        qWarning() << "Failed to create CGBitmapContext";
+        CGColorSpaceRelease(colorSpace);
+        return QImage();
+    }
+
+    CGContextDrawImage(ctx, CGRectMake(0, 0, width, height), imageRef);
+
+    CGContextRelease(ctx);
+    CGColorSpaceRelease(colorSpace);
+
+    // Create a QImage from the buffer, then do a deep copy.
+    QImage img(buffer.data(), static_cast<int>(width), static_cast<int>(height),
+               static_cast<int>(bytesPerRow), QImage::Format_ARGB32_Premultiplied);
+    
+    return img.copy();
 }
 
 class CaptureEngineMac : public CaptureEngine
@@ -53,10 +67,21 @@ public:
         // Permission Check
         if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::MacOSCatalina) {
             if (!CGPreflightScreenCaptureAccess()) {
-                qWarning() << "No screen recording permission. Requesting...";
+                // We don't have permission, so we request it.
                 CGRequestScreenCaptureAccess();
-                qWarning() << "Please grant permissions and restart.";
-                return frames; 
+
+                // Inform the user about the required action.
+                QMessageBox msgBox;
+                msgBox.setIcon(QMessageBox::Information);
+                msgBox.setWindowTitle(tr("Screen Recording Permission"));
+                msgBox.setText(tr("CaptureKit requires screen recording permission to take screenshots."));
+                msgBox.setInformativeText(tr("Please go to System Settings > Privacy & Security > Screen Recording, "
+                                              "and enable CaptureKit. You will need to restart the application afterwards."));
+                msgBox.setStandardButtons(QMessageBox::Ok);
+                msgBox.exec();
+
+                // Return empty frames to allow the application to exit gracefully.
+                return frames;
             }
         }
 
@@ -96,6 +121,8 @@ public:
                 index++;
                 continue;
             }
+
+            qtImage.setDevicePixelRatio(screen->devicePixelRatio());
             
             CapturedFrame frame;
             frame.image = qtImage;
