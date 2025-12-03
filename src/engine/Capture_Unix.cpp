@@ -17,11 +17,10 @@
 #include <QFile>
 #include <QUuid>
 #include <QUrl>
-#include <QStandardPaths>
+#include <cmath>
 
 // =============================================================================
-// INTERNAL HELPER: Portal Response Receiver
-// Handles the asynchronous signal from the Freedesktop Portal
+// HELPER: Portal Response Handler
 // =============================================================================
 class PortalHelper : public QObject {
     Q_OBJECT
@@ -35,7 +34,7 @@ public slots:
             savedUri = results.value("uri").toString();
             success = !savedUri.isEmpty();
         } else {
-            qWarning() << "Portal request denied or failed. Code:" << response;
+            qWarning() << "Portal request failed (Response Code:" << response << ")";
             success = false;
         }
         emit finished();
@@ -55,17 +54,16 @@ public:
 
     std::vector<CapturedFrame> captureAll() override {
         QString platform = QGuiApplication::platformName();
-        qDebug() << "CaptureEngineUnix detected platform:" << platform;
-
+        // Force Wayland path if detected, otherwise fallback to X11/Cocoa
         if (platform.startsWith("wayland")) {
             return captureWayland();
         } else {
-            return captureStandard(); // X11 or macOS
+            return captureStandard();
         }
     }
 
 private:
-    // --- X11 / macOS (Fast, In-Memory) ---
+    // --- X11 / macOS (Standard Memory Grab) ---
     std::vector<CapturedFrame> captureStandard() {
         std::vector<CapturedFrame> frames;
         const auto screens = QGuiApplication::screens();
@@ -73,14 +71,8 @@ private:
 
         for (QScreen* screen : screens) {
             if (!screen) continue;
-
-            // grabWindow(0) is optimized on X11 and Cocoa
             QPixmap pixmap = screen->grabWindow(0);
-            
-            if (pixmap.isNull()) {
-                qWarning() << "Failed to grab screen:" << screen->name();
-                continue;
-            }
+            if (pixmap.isNull()) continue;
 
             CapturedFrame frame;
             frame.image = pixmap.toImage(); 
@@ -88,19 +80,17 @@ private:
             frame.devicePixelRatio = screen->devicePixelRatio();
             frame.name = screen->name();
             frame.index = index++;
-
             frames.push_back(frame);
         }
-
         CaptureEngine::sortLeftToRight(frames);
         return frames;
     }
 
-    // --- Wayland (Portal / DBus) ---
+    // --- Wayland (The Giant Image Slicer) ---
     std::vector<CapturedFrame> captureWayland() {
         std::vector<CapturedFrame> frames;
         
-        // 1. Prepare DBus Call
+        // 1. Setup DBus Interface
         QDBusInterface portal(
             "org.freedesktop.portal.Desktop",
             "/org/freedesktop/portal/desktop",
@@ -108,96 +98,103 @@ private:
         );
 
         if (!portal.isValid()) {
-            qCritical() << "Wayland Portal interface not found!";
+            qCritical() << "Portal interface not found.";
             return frames;
         }
 
-        // 2. Generate unique token & prepare options
+        // 2. Request Silent Capture (interactive: false)
+        // Note: Some compositors might ignore this and show a prompt anyway, 
+        // but this flag tells them "we prefer no UI".
         QString token = QUuid::createUuid().toString().remove('{').remove('}').remove('-');
         QVariantMap options;
         options["handle_token"] = token;
-        options["interactive"] = false; // Silent capture
+        options["interactive"] = false; 
 
-        // 3. Call 'Screenshot' method
         QDBusReply<QDBusObjectPath> reply = portal.call("Screenshot", "", options);
-        
         if (!reply.isValid()) {
-            qCritical() << "Portal Screenshot call failed:" << reply.error().message();
+            qCritical() << "Portal call failed:" << reply.error().message();
             return frames;
         }
 
-        // 4. Setup Signal Listener (The Request Object)
-        QString requestPath = reply.value().path();
+        // 3. Wait for the file
         PortalHelper helper;
         QEventLoop loop;
-
         QDBusConnection::sessionBus().connect(
-            "org.freedesktop.portal.Desktop",
-            requestPath,
-            "org.freedesktop.portal.Request",
-            "Response",
-            &helper,
-            SLOT(handleResponse(uint, QVariantMap))
+            "org.freedesktop.portal.Desktop", reply.value().path(),
+            "org.freedesktop.portal.Request", "Response",
+            &helper, SLOT(handleResponse(uint, QVariantMap))
         );
-
         QObject::connect(&helper, &PortalHelper::finished, &loop, &QEventLoop::quit);
-
-        // 5. Wait for User/System (Blocking)
-        qDebug() << "Waiting for Wayland Portal response...";
         loop.exec();
 
-        if (!helper.success) {
-            return frames;
-        }
+        if (!helper.success) return frames;
 
-        // 6. Process Result
+        // 4. Load the Giant Image
         QString localPath = QUrl(helper.savedUri).toLocalFile();
         QImage fullDesktop(localPath);
+        QFile::remove(localPath); // Delete immediately
 
         if (fullDesktop.isNull()) {
-            qCritical() << "Failed to load image from Portal:" << localPath;
+            qCritical() << "Downloaded image is null.";
             return frames;
         }
 
-        // 7. Cleanup File (Zero-Storage Policy)
-        QFile::remove(localPath);
+        // =========================================================
+        // THE SLICER LOGIC (Flameshot Adaptation)
+        // =========================================================
 
-        // 8. SLICE THE GIANT IMAGE
-        // Portals usually return one giant combined image. 
-        // We must crop it based on Qt's understanding of screen geometry.
-        
+        // A. Calculate the bounds of the "Logical" desktop (Qt coordinates)
         QRect logicalBounds;
         for (QScreen* screen : QGuiApplication::screens()) {
             logicalBounds = logicalBounds.united(screen->geometry());
         }
 
-        // Check if we need to scale (HiDPI handling)
-        qreal scaleFactor = 1.0;
-        if (fullDesktop.width() != logicalBounds.width()) {
-            scaleFactor = (qreal)fullDesktop.width() / (qreal)logicalBounds.width();
+        // B. Determine the Global Scale Factor
+        // The Portal image is usually in raw physical pixels.
+        // Qt geometries are in logical pixels (e.g., scaled by 200%).
+        // We calculate the ratio between the big image width and the logical width.
+        double scaleFactor = 1.0;
+        if (logicalBounds.width() > 0) {
+            scaleFactor = (double)fullDesktop.width() / (double)logicalBounds.width();
         }
+        
+        qDebug() << "Giant Image Size:" << fullDesktop.size();
+        qDebug() << "Logical Bounds:" << logicalBounds;
+        qDebug() << "Calculated Global Scale:" << scaleFactor;
 
         int index = 0;
         for (QScreen* screen : QGuiApplication::screens()) {
             QRect geo = screen->geometry();
-            
-            // Map logical screen geometry to the actual screenshot pixels
-            QRect cropRect(
-                (geo.x() - logicalBounds.x()) * scaleFactor,
-                (geo.y() - logicalBounds.y()) * scaleFactor,
-                geo.width() * scaleFactor,
-                geo.height() * scaleFactor
-            );
 
-            QImage screenImg = fullDesktop.copy(cropRect);
+            // C. Map Logical Coordinates to Physical Image Coordinates
+            // We must subtract the logicalBounds.x() because the virtual desktop 
+            // might start at negative coordinates (e.g. secondary monitor on the left).
+            int cropX = std::round((geo.x() - logicalBounds.x()) * scaleFactor);
+            int cropY = std::round((geo.y() - logicalBounds.y()) * scaleFactor);
+            int cropW = std::round(geo.width() * scaleFactor);
+            int cropH = std::round(geo.height() * scaleFactor);
+
+            // Safety clamp to prevent crashing on rounding errors
+            if (cropX < 0) cropX = 0;
+            if (cropY < 0) cropY = 0;
+            if (cropX + cropW > fullDesktop.width()) cropW = fullDesktop.width() - cropX;
+            if (cropY + cropH > fullDesktop.height()) cropH = fullDesktop.height() - cropY;
+
+            // D. Crop
+            QImage screenImg = fullDesktop.copy(cropX, cropY, cropW, cropH);
+
+            // E. Set DPR
+            // This ensures the image doesn't look "zoomed in" when displayed 
+            // on a high-DPI logical window.
+            screenImg.setDevicePixelRatio(scaleFactor);
 
             CapturedFrame frame;
             frame.image = screenImg;
             frame.geometry = geo;
-            frame.devicePixelRatio = screen->devicePixelRatio();
+            frame.devicePixelRatio = scaleFactor; // Use the calculated scale, not the OS reported one
             frame.name = screen->name();
             frame.index = index++;
-            
+
             frames.push_back(frame);
         }
 
@@ -208,7 +205,6 @@ private:
 
 #include "Capture_Unix.moc"
 
-// Factory definition
 extern "C" CaptureEngine* createUnixEngine(QObject* parent) {
     return new CaptureEngineUnix(parent);
 }
