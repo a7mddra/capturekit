@@ -9,9 +9,10 @@
 #include <QScreen>
 #include <QDebug>
 #include <QOperatingSystemVersion>
-#include <QNativeInterface> 
 #include <QMessageBox>
 #include <QPushButton>
+
+// REMOVED: #include <QNativeInterface> (It is a namespace inside QScreen/QWindow)
 
 #import <CoreGraphics/CoreGraphics.h>
 #import <AppKit/AppKit.h>
@@ -96,7 +97,7 @@ public:
                 msgBox.setText(tr("CaptureKit requires screen recording permission to take screenshots."));
                 msgBox.setInformativeText(tr("Please grant permission in System Settings. The application will close after. A restart may be required."));
                 
-                QAbstractButton *openSettingsButton = msgBox.addButton(tr("Open System Settings"), QMessageBox::ActionRole);
+                QPushButton *openSettingsButton = msgBox.addButton(tr("Open System Settings"), QMessageBox::ActionRole);
                 msgBox.setStandardButtons(QMessageBox::Cancel);
                 msgBox.setDefaultButton(openSettingsButton);
 

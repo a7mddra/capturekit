@@ -10,7 +10,7 @@
 #include <QCloseEvent>
 #include <QDebug>
 #include <QWindow>
-#include <QNativeInterface>
+// REMOVED: #include <QNativeInterface> (Included via QWindow)
 #include <Cocoa/Cocoa.h>
 #include <CoreGraphics/CoreGraphics.h>
 
