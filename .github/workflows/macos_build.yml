@@ -28,7 +28,6 @@ jobs:
           # Use the same Qt version as specified in the PKGBUILD script
           version: '6.6.0'
           host: 'mac'
-          arch: '${{ matrix.arch }}'
 
       - name: Make PKGBUILD executable
         run: chmod +x PKGBUILD
