@@ -12,7 +12,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
 # Find Qt
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets GuiPrivate)
 if(UNIX AND NOT APPLE)
     find_package(Qt6 REQUIRED COMPONENTS DBus)
 endif()
@@ -43,7 +43,7 @@ elseif(APPLE)
     if(NOT FOUNDATION_LIB OR NOT COREGRAPHICS_LIB OR NOT COCOA_LIB OR NOT APPKIT_LIB)
         message(FATAL_ERROR "Required macOS frameworks not found")
     endif()
-    set(PLATFORM_LIBS ${FOUNDATION_LIB} ${COREGRAPHICS_LIB} ${COCOA_LIB} ${APPKIT_LIB})
+    set(PLATFORM_LIBS ${FOUNDATION_LIB} ${COREGRAPHICS_LIB} ${COCOA_LIB} ${APPKIT_LIB} Qt6::GuiPrivate)
 elseif(UNIX AND NOT APPLE)
     # Linux
     list(APPEND SOURCES src/engine/Capture_Unix.cpp src/interface/Window.cpp)
