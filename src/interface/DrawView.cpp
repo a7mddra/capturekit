@@ -12,8 +12,8 @@
 #include <QConicalGradient>
 #include <iostream>
 #include <QDir>
+#include <cmath> 
 
-// CHANGED: Constructor accepts DPR and calculates Logical Size
 DrawView::DrawView(const QImage &background, qreal dpr, QWidget *parent)
     : QWidget(parent),
       m_background(background),
@@ -27,10 +27,8 @@ DrawView::DrawView(const QImage &background, qreal dpr, QWidget *parent)
     setCursor(Qt::CrossCursor);
     setContentsMargins(0, 0, 0, 0);
     
-    // CRITICAL FIX: Set the widget size to LOGICAL pixels.
-    // If Image is 3840px (Physical) and DPR is 2.0
-    // Widget becomes 1920px (Logical).
-    // This ensures it maps 1:1 to your screen.
+    // Set widget size to LOGICAL pixels so it matches the screen size correctly.
+    // (Physical Pixels / DPR = Logical Pixels)
     setFixedSize(m_background.width() / m_dpr, m_background.height() / m_dpr);
 
     m_animation = new QPropertyAnimation(this, "gradientOpacity");
@@ -99,10 +97,13 @@ void DrawView::keyPressEvent(QKeyEvent *event)
 void DrawView::paintEvent(QPaintEvent *event)
 {
     QPainter painter(this);
+    
+    // Anti-aliasing for the UI/Brush is fine, but we ensure the image 
+    // is drawn smoothly to fit the logical widget size.
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
-    // CRITICAL FIX: Draw the High-Res Image into the Logical Rectangle
-    // Qt will handle the downscaling for preview, but the data remains sharp.
+    // Draw the High-Res Image into the Logical Rectangle
     painter.drawImage(rect(), m_background);
 
     QLinearGradient gradient(0, 0, 0, height());
@@ -144,7 +145,6 @@ void DrawView::drawCursorCircle(QPainter &painter, const QPointF &center)
 void DrawView::updateBounds(qreal x, qreal y)
 {
     qreal brushRadius = m_brushSize / 2 + m_glowAmount / 2;
-    // Bounds are tracked in LOGICAL coordinates (Mouse space)
     m_minX = qMin(m_minX, x - brushRadius);
     m_maxX = qMax(m_maxX, x + brushRadius);
     m_minY = qMin(m_minY, y - brushRadius);
@@ -156,7 +156,6 @@ void DrawView::clearCanvas()
     m_path = QPainterPath();
     m_isDrawing = false;
     m_hasDrawing = false;
-    // Reset bounds to inverted extremes (Logical size)
     m_minX = width();
     m_maxX = 0;
     m_minY = height();
@@ -164,36 +163,50 @@ void DrawView::clearCanvas()
     update();
 }
 
+// =============================================================================
+//  THE FIX IS HERE
+// =============================================================================
 void DrawView::cropAndFinish()
 {
-    // 1. Calculate Crop Rect in LOGICAL coordinates
+    // 1. Calculate Crop Rect in LOGICAL coordinates (Mouse Coordinates)
     qreal logicalX = qMax(0.0, m_minX);
     qreal logicalY = qMax(0.0, m_minY);
     qreal logicalW = m_maxX - m_minX;
     qreal logicalH = m_maxY - m_minY;
 
-    // 2. CONVERT TO PHYSICAL COORDINATES (The Fix)
-    // We multiply everything by the Device Pixel Ratio
-    qreal physX = logicalX * m_dpr;
-    qreal physY = logicalY * m_dpr;
-    qreal physW = logicalW * m_dpr;
-    qreal physH = logicalH * m_dpr;
+    // 2. CONVERT TO PHYSICAL COORDINATES
+    // Use qRound to snap to the nearest physical pixel. 
+    // Simply multiplying to qreal (float) can result in sub-pixel coordinates 
+    // which forces the image engine to interpolate (blur).
+    int physX = qRound(logicalX * m_dpr);
+    int physY = qRound(logicalY * m_dpr);
+    int physW = qRound(logicalW * m_dpr);
+    int physH = qRound(logicalH * m_dpr);
 
-    // 3. Safety Clamp against the actual image size
-    physW = qMin(physW, static_cast<qreal>(m_background.width()) - physX);
-    physH = qMin(physH, static_cast<qreal>(m_background.height()) - physY);
+    // 3. Safety Clamp
+    if (physX < 0) physX = 0;
+    if (physY < 0) physY = 0;
+    if (physX + physW > m_background.width()) physW = m_background.width() - physX;
+    if (physY + physH > m_background.height()) physH = m_background.height() - physY;
 
     if (physW <= 0 || physH <= 0) {
         QApplication::exit(1);
         return;
     }
 
-    // 4. Crop using PHYSICAL coordinates from the PHYSICAL image
+    // 4. Crop
     QImage cropped = m_background.copy(physX, physY, physW, physH);
     
-    // 5. Save
+    // 5. STRIP METADATA (The Critical Fix)
+    // By default, 'cropped' inherits the DPR (e.g. 2.0) from m_background.
+    // If we save it now, viewers will scale it down. 
+    // Setting it to 1.0 forces it to be a raw 1:1 pixel map.
+    cropped.setDevicePixelRatio(1.0);
+
+    // 6. Save as PNG (Lossless)
+    // We use compression -1 (default) which is lossless but compact.
     QString finalPath = QDir::temp().filePath("spatial_capture.png");
-    if (cropped.save(finalPath)) {
+    if (cropped.save(finalPath, "PNG", -1)) { 
         std::cout << finalPath.toStdString() << std::endl;
         QApplication::exit(0);
     } else {
