@@ -11,6 +11,7 @@
 #include <QOperatingSystemVersion>
 #include <QNativeInterface> 
 #include <QMessageBox>
+#include <QPushButton>
 
 #import <CoreGraphics/CoreGraphics.h>
 #import <AppKit/AppKit.h>
@@ -62,6 +63,14 @@ static QImage convertCGImageRefToQImage(CGImageRef imageRef, CGDirectDisplayID d
     // Create a QImage from the buffer, then do a deep copy.
     QImage img(buffer.data(), static_cast<int>(width), static_cast<int>(height),
                static_cast<int>(bytesPerRow), QImage::Format_ARGB32_Premultiplied);
+
+#ifndef NDEBUG
+    if (width > 0 && height > 0) {
+        // Quick pixel sanity check after creating the image in debug builds.
+        QRgb p = img.pixel(0, 0);
+        qDebug() << "Captured pixel (ARGB):" << qAlpha(p) << qRed(p) << qGreen(p) << qBlue(p);
+    }
+#endif
     
     return img.copy();
 }
@@ -80,15 +89,22 @@ public:
                 // We don't have permission, so we request it.
                 CGRequestScreenCaptureAccess();
 
-                // Inform the user about the required action.
+                // Inform the user about the required action with an improved dialog.
                 QMessageBox msgBox;
                 msgBox.setIcon(QMessageBox::Information);
                 msgBox.setWindowTitle(tr("Screen Recording Permission"));
                 msgBox.setText(tr("CaptureKit requires screen recording permission to take screenshots."));
-                msgBox.setInformativeText(tr("Please go to System Settings > Privacy & Security > Screen Recording, "
-                                              "and enable CaptureKit. You will need to restart the application afterwards."));
-                msgBox.setStandardButtons(QMessageBox::Ok);
+                msgBox.setInformativeText(tr("Please grant permission in System Settings. The application will close after. A restart may be required."));
+                
+                QPushButton *openSettingsButton = msgBox.addButton(tr("Open System Settings"), QMessageBox::ActionRole);
+                msgBox.setStandardButtons(QMessageBox::Cancel);
+                msgBox.setDefaultButton(openSettingsButton);
+
                 msgBox.exec();
+
+                if (msgBox.clickedButton() == openSettingsButton) {
+                    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenRecording"]];
+                }
 
                 // Return empty frames to allow the application to exit gracefully.
                 return frames;
@@ -107,10 +123,34 @@ public:
                 displayID = native->displayId();
             } else {
                 qWarning() << "Could not retrieve native Cocoa screen interface for screen:" << screen->name();
-                // Fallback (rare): try to guess main display if this is the first screen
-                if (index == 0) {
-                    displayID = CGMainDisplayID();
-                } else {
+                qWarning() << "Attempting to match screen by geometry as a fallback.";
+
+                const int maxDisplays = 16; // A reasonable limit
+                CGDirectDisplayID displays[maxDisplays];
+                uint32_t displayCount = 0;
+
+                if (CGGetActiveDisplayList(maxDisplays, displays, &displayCount) != kCGErrorSuccess) {
+                    qWarning() << "Fallback failed: Could not get active display list.";
+                    index++;
+                    continue;
+                }
+
+                bool foundMatch = false;
+                for (uint32_t i = 0; i < displayCount; ++i) {
+                    CGRect cgRect = CGDisplayBounds(displays[i]);
+                    QRect qtRect(static_cast<int>(cgRect.origin.x), static_cast<int>(cgRect.origin.y),
+                                 static_cast<int>(cgRect.size.width), static_cast<int>(cgRect.size.height));
+
+                    if (qtRect == screen->geometry()) {
+                        displayID = displays[i];
+                        foundMatch = true;
+                        qInfo() << "Fallback successful: Matched screen by geometry to display ID" << displayID;
+                        break;
+                    }
+                }
+
+                if (!foundMatch) {
+                    qWarning() << "Fallback failed: Could not match screen geometry. Skipping screen.";
                     index++;
                     continue;
                 }

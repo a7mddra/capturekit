@@ -26,13 +26,12 @@ static void DisplayReconfigurationCallBack(
     }
 }
 
-MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, qreal dpr, QWidget *parent)
+MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, QWidget *parent)
     : QMainWindow(parent), 
       m_displayNum(displayNum),
       m_displayCallbackRegistered(false)
 {
-    // CHANGED: Pass dpr to DrawView constructor
-    m_drawView = new DrawView(bgImage, dpr, this);
+    m_drawView = new DrawView(bgImage, this);
     setCentralWidget(m_drawView);
 
     // Window Flags for Overlay
@@ -55,7 +54,7 @@ MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, 
             NSWindow *nswindow = nativeWindow->window();
             [nswindow setAnimationBehavior: NSWindowAnimationBehaviorNone];
             [nswindow setHasShadow:NO];
-            [nswindow setLevel:NSScreenSaverWindowLevel]; // Force it above everything
+            [nswindow setLevel:NSFloatingWindowLevel]; // Stay above normal windows, but below system dialogs.
         } else {
             qWarning() << "Could not retrieve native Cocoa window interface for QWindow.";
         }
@@ -71,8 +70,6 @@ MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, 
         qDebug() << "Successfully registered display reconfiguration callback.";
         m_displayCallbackRegistered = true;
     }
-
-    show();
 }
 
 MainWindow::~MainWindow()

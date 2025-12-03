@@ -14,10 +14,9 @@
 #include <QDir>
 #include <cmath> 
 
-DrawView::DrawView(const QImage &background, qreal dpr, QWidget *parent)
+DrawView::DrawView(const QImage &background, QWidget *parent)
     : QWidget(parent),
       m_background(background),
-      m_dpr(dpr),
       m_smoothedPoint(0, 0),
       m_currentMousePos(0, 0),
       m_gradientOpacity(0.0),
@@ -29,7 +28,11 @@ DrawView::DrawView(const QImage &background, qreal dpr, QWidget *parent)
     
     // Set widget size to LOGICAL pixels so it matches the screen size correctly.
     // (Physical Pixels / DPR = Logical Pixels)
-    setFixedSize(m_background.width() / m_dpr, m_background.height() / m_dpr);
+    qreal dpr = m_background.devicePixelRatio();
+    if (dpr <= 0) { // Safety check for invalid DPR
+        dpr = 1.0;
+    }
+    setFixedSize(qRound(m_background.width() / dpr), qRound(m_background.height() / dpr));
 
     m_animation = new QPropertyAnimation(this, "gradientOpacity");
     m_animation->setDuration(200);
@@ -178,10 +181,14 @@ void DrawView::cropAndFinish()
     // Use qRound to snap to the nearest physical pixel. 
     // Simply multiplying to qreal (float) can result in sub-pixel coordinates 
     // which forces the image engine to interpolate (blur).
-    int physX = qRound(logicalX * m_dpr);
-    int physY = qRound(logicalY * m_dpr);
-    int physW = qRound(logicalW * m_dpr);
-    int physH = qRound(logicalH * m_dpr);
+    qreal dpr = m_background.devicePixelRatio();
+    if (dpr <= 0) { // Safety check for invalid DPR
+        dpr = 1.0;
+    }
+    int physX = qRound(logicalX * dpr);
+    int physY = qRound(logicalY * dpr);
+    int physW = qRound(logicalW * dpr);
+    int physH = qRound(logicalH * dpr);
 
     // 3. Safety Clamp
     if (physX < 0) physX = 0;

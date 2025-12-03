@@ -15,11 +15,10 @@
 #include <dwmapi.h>
 #endif
 
-MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, qreal dpr, QWidget *parent)
+MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, QWidget *parent)
     : QMainWindow(parent),
       m_displayNum(displayNum),
-      // CHANGED: Pass dpr to DrawView
-      m_drawView(new DrawView(bgImage, dpr, this))
+      m_drawView(new DrawView(bgImage, this))
 {
     setCentralWidget(m_drawView);
     m_drawView->setFocus();

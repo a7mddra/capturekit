@@ -20,7 +20,7 @@ class MainWindow : public QMainWindow
 {
     Q_OBJECT
 public:
-    MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, qreal dpr, QWidget *parent = nullptr);
+    MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, QWidget *parent = nullptr);
     ~MainWindow();
 
 protected:

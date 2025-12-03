@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
                  << "|" << frame.name 
                  << "|" << frame.geometry 
                  << "| DPR:" << frame.devicePixelRatio;
-        MainWindow* win = new MainWindow(frame.index, frame.image, frame.geometry, frame.devicePixelRatio);
+        MainWindow* win = new MainWindow(frame.index, frame.image, frame.geometry);
         windows.append(win);
         win->show();
     }

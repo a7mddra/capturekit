@@ -20,8 +20,7 @@ class DrawView : public QWidget
     Q_PROPERTY(qreal gradientOpacity READ gradientOpacity WRITE setGradientOpacity)
 
 public:
-    // CHANGED: Added 'dpr' to constructor
-    explicit DrawView(const QImage &background, qreal dpr, QWidget *parent = nullptr);
+    explicit DrawView(const QImage &background, QWidget *parent = nullptr);
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -40,8 +39,7 @@ private:
     void cropAndFinish();
 
     QImage m_background; 
-    qreal m_dpr; // <--- The Magic Number (e.g. 1.0, 1.25, 2.0)
-
+    
     QPainterPath m_path;
     bool m_isDrawing = false;
     bool m_hasDrawing = false;
