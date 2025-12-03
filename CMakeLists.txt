@@ -74,3 +74,12 @@ if(UNIX AND NOT APPLE)
         BUILD_WITH_INSTALL_RPATH TRUE
     )
 endif()
+
+if(APPLE)
+    set_target_properties(capturekit PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.capturekit.app"
+        MACOSX_BUNDLE_BUNDLE_NAME "CaptureKit"
+        MACOSX_BUNDLE_INFO_STRING "CaptureKit Screen Capture"
+    )
+endif()
