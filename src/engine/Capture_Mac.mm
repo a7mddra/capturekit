@@ -12,8 +12,6 @@
 #include <QMessageBox>
 #include <QPushButton>
 
-// REMOVED: #include <QNativeInterface> (It is a namespace inside QScreen/QWindow)
-
 #import <CoreGraphics/CoreGraphics.h>
 #import <AppKit/AppKit.h>
 
@@ -67,7 +65,6 @@ static QImage convertCGImageRefToQImage(CGImageRef imageRef, CGDirectDisplayID d
 
 #ifndef NDEBUG
     if (width > 0 && height > 0) {
-        // Quick pixel sanity check after creating the image in debug builds.
         QRgb p = img.pixel(0, 0);
         qDebug() << "Captured pixel (ARGB):" << qAlpha(p) << qRed(p) << qGreen(p) << qBlue(p);
     }
@@ -90,7 +87,7 @@ public:
                 // We don't have permission, so we request it.
                 CGRequestScreenCaptureAccess();
 
-                // Inform the user about the required action with an improved dialog.
+                // Inform the user about the required action.
                 QMessageBox msgBox;
                 msgBox.setIcon(QMessageBox::Information);
                 msgBox.setWindowTitle(tr("Screen Recording Permission"));
@@ -107,7 +104,6 @@ public:
                     [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenRecording"]];
                 }
 
-                // Return empty frames to allow the application to exit gracefully.
                 return frames;
             }
         }
@@ -118,43 +114,36 @@ public:
         for (QScreen* screen : screens) {
             CGDirectDisplayID displayID = 0;
 
-            // Use Qt 6's public native interface to get the display ID directly and safely.
-            auto *native = screen->nativeInterface<QNativeInterface::QCocoaScreen>();
-            if (native) {
-                displayID = native->displayId();
-            } else {
-                qWarning() << "Could not retrieve native Cocoa screen interface for screen:" << screen->name();
-                qWarning() << "Attempting to match screen by geometry as a fallback.";
+            // [FIX] Use explicit geometry matching instead of QNativeInterface
+            // This is more robust on CI environments and older Qt builds.
+            const int maxDisplays = 16;
+            CGDirectDisplayID displays[maxDisplays];
+            uint32_t displayCount = 0;
 
-                const int maxDisplays = 16; // A reasonable limit
-                CGDirectDisplayID displays[maxDisplays];
-                uint32_t displayCount = 0;
-
-                if (CGGetActiveDisplayList(maxDisplays, displays, &displayCount) != kCGErrorSuccess) {
-                    qWarning() << "Fallback failed: Could not get active display list.";
-                    index++;
-                    continue;
-                }
-
+            if (CGGetActiveDisplayList(maxDisplays, displays, &displayCount) == kCGErrorSuccess) {
                 bool foundMatch = false;
                 for (uint32_t i = 0; i < displayCount; ++i) {
                     CGRect cgRect = CGDisplayBounds(displays[i]);
+                    // Convert CoreGraphics rect to Qt Rect for comparison
                     QRect qtRect(static_cast<int>(cgRect.origin.x), static_cast<int>(cgRect.origin.y),
                                  static_cast<int>(cgRect.size.width), static_cast<int>(cgRect.size.height));
 
                     if (qtRect == screen->geometry()) {
                         displayID = displays[i];
                         foundMatch = true;
-                        qInfo() << "Fallback successful: Matched screen by geometry to display ID" << displayID;
                         break;
                     }
                 }
-
+                
                 if (!foundMatch) {
-                    qWarning() << "Fallback failed: Could not match screen geometry. Skipping screen.";
+                    qWarning() << "Could not match screen geometry for:" << screen->name() << ". Skipping.";
                     index++;
                     continue;
                 }
+            } else {
+                 qWarning() << "Failed to get active display list.";
+                 index++;
+                 continue;
             }
             
             CGImageRef imgRef = CGDisplayCreateImage(displayID);

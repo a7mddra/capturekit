@@ -10,7 +10,6 @@
 #include <QCloseEvent>
 #include <QDebug>
 #include <QWindow>
-// REMOVED: #include <QNativeInterface> (Included via QWindow)
 #include <Cocoa/Cocoa.h>
 #include <CoreGraphics/CoreGraphics.h>
 
@@ -45,21 +44,22 @@ MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, 
     setContentsMargins(0, 0, 0, 0);
     m_drawView->setContentsMargins(0, 0, 0, 0);
 
-    // Native macOS Magic: Disable Animations & Shadow
-    winId(); // Force native window creation before getting the handle.
-    QWindow *qwin = windowHandle();
-    if (qwin) {
-        QNativeInterface::QCocoaWindow *nativeWindow = qwin->nativeInterface<QNativeInterface::QCocoaWindow>();
-        if (nativeWindow) {
-            NSWindow *nswindow = nativeWindow->window();
+    // [FIX] Native macOS Magic: Use standard casting instead of QNativeInterface
+    // Force native window creation.
+    WId nativeId = this->winId(); 
+    
+    NSView *nativeView = reinterpret_cast<NSView *>(nativeId);
+    if (nativeView) {
+        NSWindow *nswindow = [nativeView window];
+        if (nswindow) {
             [nswindow setAnimationBehavior: NSWindowAnimationBehaviorNone];
             [nswindow setHasShadow:NO];
-            [nswindow setLevel:NSFloatingWindowLevel]; // Stay above normal windows, but below system dialogs.
+            [nswindow setLevel:NSFloatingWindowLevel]; 
         } else {
-            qWarning() << "Could not retrieve native Cocoa window interface for QWindow.";
+             qWarning() << "Could not retrieve NSWindow from NSView.";
         }
     } else {
-        qWarning() << "Could not get QWindow handle for MainWindow.";
+        qWarning() << "Could not retrieve native view handle.";
     }
 
     // Register Display Callback
