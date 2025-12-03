@@ -28,6 +28,7 @@ jobs:
           # Use the same Qt version as specified in the PKGBUILD script
           version: '6.6.0'
           host: 'mac'
+          archives: 'qtbase qttools'
 
       - name: Make PKGBUILD executable
         run: chmod +x PKGBUILD
