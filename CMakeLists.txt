@@ -1,14 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
 
+# --- Project Definition ---
 if(APPLE)
-    project(CAPTUREKIT LANGUAGES CXX OBJCXX)
+    project(CAPKIT LANGUAGES CXX OBJCXX)
 else()
-    project(CAPTUREKIT LANGUAGES CXX)
+    project(CAPKIT LANGUAGES CXX)
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# --- Qt Setup ---
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
@@ -19,6 +21,7 @@ if(UNIX AND NOT APPLE)
     find_package(Qt6 REQUIRED COMPONENTS DBus)
 endif()
 
+# --- Version Parsing ---
 set(PACKAGE_JSON_PATH "${CMAKE_CURRENT_SOURCE_DIR}/package.json")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PACKAGE_JSON_PATH}")
 
@@ -39,6 +42,7 @@ else()
     message(FATAL_ERROR "Could not find package.json")
 endif()
 
+# --- Config Header Generation ---
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/config.h"
@@ -46,12 +50,18 @@ configure_file(
 )
 include_directories("${CMAKE_CURRENT_BINARY_DIR}/generated")
 
+# ==============================================================================
+#  SOURCE FILES DEFINITION
+# ==============================================================================
+
+# 1. UI Sources (Shared)
 set(UI_SOURCES
     src/interface/DrawView.cpp
     src/interface/DrawView.h
     src/interface/Window.h
 )
 
+# 2. Platform Specific UI
 if(APPLE)
     list(APPEND UI_SOURCES src/interface/Window.mm)
     set_source_files_properties(src/interface/Window.mm PROPERTIES LANGUAGE OBJCXX)
@@ -59,22 +69,29 @@ else()
     list(APPEND UI_SOURCES src/interface/Window.cpp)
 endif()
 
-if(WIN32)
+# 3. Engine Sources (The Grabber)
+# CRITICAL FIX: Explicitly include Capture.h so MOC runs on the base class
+set(ENGINE_SOURCES src/engine/Capture.h) 
 
-    set(ENGINE_SOURCES src/engine/Capture_Win.cpp)
+if(WIN32)
+    # Windows: GDI+ Engine
+    list(APPEND ENGINE_SOURCES src/engine/Capture_Win.cpp)
     set(ENGINE_LIBS dwmapi gdiplus user32 gdi32)
 elseif(APPLE)
-
-    
+    # Mac: CoreGraphics
+    list(APPEND ENGINE_SOURCES src/engine/Capture_Unix.cpp)
     find_library(COREGRAPHICS_LIB CoreGraphics)
     find_library(COCOA_LIB Cocoa)
     set(ENGINE_LIBS ${COREGRAPHICS_LIB} ${COCOA_LIB})
 else()
-
-    set(ENGINE_SOURCES src/engine/Capture_Unix.cpp)
+    # Linux: DBus/XCB Engine
+    list(APPEND ENGINE_SOURCES src/engine/Capture_Unix.cpp)
     set(ENGINE_LIBS Qt6::DBus)
 endif()
 
+# ==============================================================================
+#  TARGET: CaptureKit UI (The Main Application)
+# ==============================================================================
 
 if(WIN32)
     add_executable(capturekit_ui WIN32 src/main.cpp ${UI_SOURCES} ${ENGINE_SOURCES})
@@ -94,6 +111,7 @@ target_link_libraries(capturekit_ui PRIVATE
     ${ENGINE_LIBS}
 )
 
+# --- Installation / RPATH (Linux Distribution) ---
 if(UNIX)
     set_target_properties(capturekit_ui PROPERTIES
         OUTPUT_NAME "capturekit-bin"

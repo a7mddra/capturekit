@@ -12,6 +12,7 @@
 #include <Cocoa/Cocoa.h>
 #include <CoreGraphics/CoreGraphics.h>
 
+// Static Callback for macOS Display Changes
 static void DisplayReconfigurationCallBack(
     CGDirectDisplayID display,
     CGDisplayChangeSummaryFlags flags,
@@ -27,24 +28,29 @@ MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, 
     : QMainWindow(parent), 
       m_displayNum(displayNum)
 {
-    m_drawView = new DrawView(bgImage, this);
+    // CHANGED: Pass dpr to DrawView constructor
+    m_drawView = new DrawView(bgImage, dpr, this);
     setCentralWidget(m_drawView);
 
+    // Window Flags for Overlay
     setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool | Qt::Popup);
     setAttribute(Qt::WA_ShowWithoutActivating);   
     setAttribute(Qt::WA_TranslucentBackground, false);
     
+    // Geometry Setup
     setGeometry(geo);
     
     setContentsMargins(0, 0, 0, 0);
     m_drawView->setContentsMargins(0, 0, 0, 0);
 
+    // Native macOS Magic: Disable Animations & Shadow
     NSView *nsview = reinterpret_cast<NSView *>(winId());
     NSWindow *nswindow = [nsview window];
     [nswindow setAnimationBehavior: NSWindowAnimationBehaviorNone];
     [nswindow setHasShadow:NO];
-    [nswindow setLevel:NSScreenSaverWindowLevel];
+    [nswindow setLevel:NSScreenSaverWindowLevel]; // Force it above everything
 
+    // Register Display Callback
     CGError err = CGDisplayRegisterReconfigurationCallback(DisplayReconfigurationCallBack, this);
     if (err != kCGErrorSuccess) {
         qWarning() << "Failed to register display reconfiguration callback:" << err;

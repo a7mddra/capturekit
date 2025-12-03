@@ -18,7 +18,8 @@
 MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, qreal dpr, QWidget *parent)
     : QMainWindow(parent),
       m_displayNum(displayNum),
-      m_drawView(new DrawView(bgImage, this))
+      // CHANGED: Pass dpr to DrawView
+      m_drawView(new DrawView(bgImage, dpr, this))
 {
     setCentralWidget(m_drawView);
     m_drawView->setFocus();
@@ -27,6 +28,9 @@ MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, 
     setAttribute(Qt::WA_ShowWithoutActivating);
     setAttribute(Qt::WA_TranslucentBackground, false);
     
+    // Geometry is usually Logical in Qt. 
+    // If geo is Physical (from GDI), and Qt is HighDPI aware, setGeometry might need adjustment.
+    // However, usually Qt handles mapping screen geometry correctly if QApplication is set up right.
     setGeometry(geo);
     
     setContentsMargins(0, 0, 0, 0);
@@ -51,7 +55,6 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
 {
     MSG *msg = static_cast<MSG *>(message);
     if (msg->message == WM_DISPLAYCHANGE) {
-        qWarning() << "Display configuration changed! Exiting.";
         QApplication::exit(1);
         return true;
     }
