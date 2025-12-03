@@ -47,6 +47,7 @@ MainWindow::MainWindow(int displayNum, const QImage &bgImage, const QRect &geo, 
     m_drawView->setContentsMargins(0, 0, 0, 0);
 
     // Native macOS Magic: Disable Animations & Shadow
+    winId(); // Force native window creation before getting the handle.
     QWindow *qwin = windowHandle();
     if (qwin) {
         QNativeInterface::QCocoaWindow *nativeWindow = qwin->nativeInterface<QNativeInterface::QCocoaWindow>();

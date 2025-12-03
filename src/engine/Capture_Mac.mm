@@ -16,9 +16,9 @@
 #import <AppKit/AppKit.h>
 
 /**
- * Converts a CGImageRef to a QImage with proper memory management and stride handling.
+ * Converts a CGImageRef to a QImage with proper memory management, stride handling, and color space.
  */
-static QImage convertCGImageRefToQImage(CGImageRef imageRef)
+static QImage convertCGImageRefToQImage(CGImageRef imageRef, CGDirectDisplayID displayID)
 {
     if (!imageRef) return QImage();
 
@@ -33,10 +33,20 @@ static QImage convertCGImageRefToQImage(CGImageRef imageRef)
     size_t bytesPerRow = bytesPerPixel * width;
     std::vector<unsigned char> buffer(bytesPerRow * height);
 
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    // Create a bitmap context with a known ARGB format.
+    // Use the display's actual color space for accuracy, with a fallback to generic sRGB.
+    CGColorSpaceRef colorSpace = CGDisplayCopyColorSpace(displayID);
+    if (!colorSpace) {
+        qWarning() << "Could not get display color space, falling back to sRGB.";
+        colorSpace = CGColorSpaceCreateDeviceRGB();
+        if (!colorSpace) {
+            qWarning() << "Failed to create any color space!";
+            return QImage();
+        }
+    }
+
+    // Create a bitmap context with a known ARGB format (little-endian for modern Macs).
     CGContextRef ctx = CGBitmapContextCreate(buffer.data(), width, height, 8, bytesPerRow, colorSpace,
-                                             kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Big);
+                                             kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
     
     if (!ctx) {
         qWarning() << "Failed to create CGBitmapContext";
@@ -113,7 +123,7 @@ public:
                 continue;
             }
 
-            QImage qtImage = convertCGImageRefToQImage(imgRef);
+            QImage qtImage = convertCGImageRefToQImage(imgRef, displayID);
             CGImageRelease(imgRef);
 
             if (qtImage.isNull()) {
