@@ -53,11 +53,25 @@ public:
     CaptureEngineUnix(QObject *parent = nullptr) : CaptureEngine(parent) {}
 
     std::vector<CapturedFrame> captureAll() override {
-        QString platform = QGuiApplication::platformName();
-        // Force Wayland path if detected, otherwise fallback to X11/Cocoa
-        if (platform.startsWith("wayland")) {
+        // ---------------------------------------------------------------------
+        // CRITICAL FIX: Session Detection vs Platform Detection
+        // ---------------------------------------------------------------------
+        // Since we are forcing QT_QPA_PLATFORM=xcb in main.cpp, 
+        // QGuiApplication::platformName() will return "xcb".
+        // This causes the logic to mistakenly choose captureStandard() (grabWindow),
+        // which returns black screens on Wayland.
+        //
+        // We must check the ENVIRONMENT to see if we are actually in a Wayland session.
+        // ---------------------------------------------------------------------
+        
+        QString sessionType = qgetenv("XDG_SESSION_TYPE").toLower();
+        
+        // Use Portal if we are on Wayland, regardless of how Qt is rendering.
+        if (sessionType == "wayland") {
+            qDebug() << "Wayland session detected (forcing Portal capture despite XCB backend).";
             return captureWayland();
         } else {
+            qDebug() << "X11 session detected (using standard capture).";
             return captureStandard();
         }
     }
@@ -103,8 +117,6 @@ private:
         }
 
         // 2. Request Silent Capture (interactive: false)
-        // Note: Some compositors might ignore this and show a prompt anyway, 
-        // but this flag tells them "we prefer no UI".
         QString token = QUuid::createUuid().toString().remove('{').remove('}').remove('-');
         QVariantMap options;
         options["handle_token"] = token;
@@ -140,58 +152,49 @@ private:
         }
 
         // =========================================================
-        // THE SLICER LOGIC (Flameshot Adaptation)
+        // SLICER LOGIC
         // =========================================================
-
-        // A. Calculate the bounds of the "Logical" desktop (Qt coordinates)
+        
+        // A. Calculate Logical Bounds
         QRect logicalBounds;
         for (QScreen* screen : QGuiApplication::screens()) {
             logicalBounds = logicalBounds.united(screen->geometry());
         }
 
-        // B. Determine the Global Scale Factor
-        // The Portal image is usually in raw physical pixels.
-        // Qt geometries are in logical pixels (e.g., scaled by 200%).
-        // We calculate the ratio between the big image width and the logical width.
+        // B. Calculate Global Scale
+        // Note: When running in XCB on Wayland, logicalBounds might report the XWayland 
+        // bounds, while fullDesktop is the raw Wayland compositor screenshot.
+        // This ratio calculation remains valid and necessary.
         double scaleFactor = 1.0;
         if (logicalBounds.width() > 0) {
             scaleFactor = (double)fullDesktop.width() / (double)logicalBounds.width();
         }
         
-        qDebug() << "Giant Image Size:" << fullDesktop.size();
-        qDebug() << "Logical Bounds:" << logicalBounds;
-        qDebug() << "Calculated Global Scale:" << scaleFactor;
+        qDebug() << "Capture Info: Image" << fullDesktop.size() 
+                 << "Logical" << logicalBounds 
+                 << "Scale" << scaleFactor;
 
         int index = 0;
         for (QScreen* screen : QGuiApplication::screens()) {
             QRect geo = screen->geometry();
 
-            // C. Map Logical Coordinates to Physical Image Coordinates
-            // We must subtract the logicalBounds.x() because the virtual desktop 
-            // might start at negative coordinates (e.g. secondary monitor on the left).
             int cropX = std::round((geo.x() - logicalBounds.x()) * scaleFactor);
             int cropY = std::round((geo.y() - logicalBounds.y()) * scaleFactor);
             int cropW = std::round(geo.width() * scaleFactor);
             int cropH = std::round(geo.height() * scaleFactor);
 
-            // Safety clamp to prevent crashing on rounding errors
             if (cropX < 0) cropX = 0;
             if (cropY < 0) cropY = 0;
             if (cropX + cropW > fullDesktop.width()) cropW = fullDesktop.width() - cropX;
             if (cropY + cropH > fullDesktop.height()) cropH = fullDesktop.height() - cropY;
 
-            // D. Crop
             QImage screenImg = fullDesktop.copy(cropX, cropY, cropW, cropH);
-
-            // E. Set DPR
-            // This ensures the image doesn't look "zoomed in" when displayed 
-            // on a high-DPI logical window.
             screenImg.setDevicePixelRatio(scaleFactor);
 
             CapturedFrame frame;
             frame.image = screenImg;
             frame.geometry = geo;
-            frame.devicePixelRatio = scaleFactor; // Use the calculated scale, not the OS reported one
+            frame.devicePixelRatio = scaleFactor;
             frame.name = screen->name();
             frame.index = index++;
 
